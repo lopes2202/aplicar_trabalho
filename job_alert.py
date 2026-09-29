@@ -201,7 +201,7 @@ def evaluate_job_with_ai(job):
     2. Se for remota internacional, permite contratação no Brasil/América Latina?
     3. Dá preferência a vagas que peçam Python, TypeScript, React/Next.js ou IA/Dados.
 
-    Responde ESTRITAMENTE em formato JSON puro, sem crases de markdown:
+    Responde ESTRITAMENTE em formato JSON puro, sem blocos de código ou crases de markdown:
     {{
         "aprovada": true,
         "compatibilidade_score": "85%",
@@ -217,26 +217,13 @@ def evaluate_job_with_ai(job):
 
     time.sleep(1)
 
-    # gemini-3.8-flash é o modelo exigido pela API na sua conta
-    candidate_models = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
-    raw_text = None
-    last_err = None
-
-    for mod in candidate_models:
-        try:
-            response = ai_client.models.generate_content(
-                model=mod,
-                contents=prompt,
-            )
-            raw_text = response.text.strip()
-            if raw_text:
-                break
-        except Exception as e:
-            last_err = f"[{mod}] {e}"
-            continue
-
-    if not raw_text:
-        print(f"Falha na IA para [{job['title']}]. Detalhe: {last_err}")
+    try:
+        # Usa o chat para contornar a restrição de AFC do SDK
+        chat_session = ai_client.chats.create(model="gemini-3.8-flash")
+        response = chat_session.send_message(prompt)
+        raw_text = response.text.strip()
+    except Exception as e:
+        print(f"Falha na IA para [{job['title']}]. Detalhe: {e}")
         return None
 
     try:
