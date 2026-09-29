@@ -217,11 +217,12 @@ def evaluate_job_with_ai(job):
 
     time.sleep(1)
 
-    # Tenta os modelos modernos suportados pelo google-genai
-    supported_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    # gemini-3.8-flash é o modelo exigido pela API na sua conta
+    candidate_models = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
     raw_text = None
+    last_err = None
 
-    for mod in supported_models:
+    for mod in candidate_models:
         try:
             response = ai_client.models.generate_content(
                 model=mod,
@@ -231,21 +232,22 @@ def evaluate_job_with_ai(job):
             if raw_text:
                 break
         except Exception as e:
-            # Continua tentando o próximo modelo da lista
+            last_err = f"[{mod}] {e}"
             continue
 
     if not raw_text:
-        print(f"Falha na IA para [{job['title']}]: Nenhum dos modelos aceitou a requisição.")
+        print(f"Falha na IA para [{job['title']}]. Detalhe: {last_err}")
         return None
 
     try:
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("\n", 1)[-1]
-        if raw_text.endswith("```"):
-            raw_text = raw_text.rsplit("```", 1)[0]
-        return json.loads(raw_text.strip())
+        clean = raw_text
+        if clean.startswith("```"):
+            clean = clean.split("\n", 1)[-1]
+        if clean.endswith("```"):
+            clean = clean.rsplit("```", 1)[0]
+        return json.loads(clean.strip())
     except Exception as e:
-        print(f"Erro ao converter JSON da IA: {e}")
+        print(f"Erro ao converter JSON para [{job['title']}]: {e}")
         return None
 
 
