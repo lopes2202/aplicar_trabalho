@@ -23,7 +23,7 @@ CACHE_FILE = "seen_jobs.json"
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 if GEMINI_MODEL == "gemini-2.0-flash":
     GEMINI_MODEL = "gemini-3.8-flash"
-MAX_JOBS_PER_RUN = int(os.getenv("MAX_JOBS_PER_RUN", "3"))
+MAX_JOBS_PER_RUN = int(os.getenv("MAX_JOBS_PER_RUN", "1"))
 
 # Inicialização oficial do novo SDK google-genai
 ai_client = None
@@ -224,10 +224,8 @@ def evaluate_job_with_ai(job):
 
     for tentativa in range(max_tentativas):
         try:
-            response = ai_client.models.generate_content(
-                model=GEMINI_MODEL,
-                contents=prompt,
-            )
+            chat_session = ai_client.chats.create(model=GEMINI_MODEL)
+            response = chat_session.send_message(prompt)
             raw_text = response.text.strip()
             break
 
