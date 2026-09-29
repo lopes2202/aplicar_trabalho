@@ -215,15 +215,32 @@ def evaluate_job_with_ai(job):
     }}
     """
 
-    time.sleep(1)
+    max_tentativas = 3
+    raw_text = None
 
-    try:
-        # Usa o chat para contornar a restrição de AFC do SDK
-        chat_session = ai_client.chats.create(model="gemini-3.8-flash")
-        response = chat_session.send_message(prompt)
-        raw_text = response.text.strip()
-    except Exception as e:
-        print(f"Falha na IA para [{job['title']}]. Detalhe: {e}")
+    for tentativa in range(max_tentativas):
+        try:
+            # Pausa de 15 segundos obriga o script a respeitar o limite de 4 requisições por minuto da cota gratuita
+            time.sleep(15)
+            
+            chat_session = ai_client.chats.create(model="gemini-3.8-flash")
+            response = chat_session.send_message(prompt)
+            raw_text = response.text.strip()
+            break  # Sucesso! Sai do loop de tentativas.
+            
+        except Exception as e:
+            erro = str(e)
+            if "429" in erro or "503" in erro:
+                print(f"[{job['title']}] Cota/Sobrecarga da Google. Tentativa {tentativa + 1}/{max_tentativas}. Aguardando 20s...")
+                time.sleep(20)
+                if tentativa == max_tentativas - 1:
+                    print(f"Falha definitiva para [{job['title']}] após {max_tentativas} tentativas.")
+                    return None
+            else:
+                print(f"Falha na IA para [{job['title']}]. Detalhe: {erro}")
+                return None
+
+    if not raw_text:
         return None
 
     try:
