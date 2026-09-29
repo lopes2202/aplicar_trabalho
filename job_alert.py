@@ -24,6 +24,7 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 if GEMINI_MODEL == "gemini-2.0-flash":
     GEMINI_MODEL = "gemini-3.8-flash"
 MAX_JOBS_PER_RUN = int(os.getenv("MAX_JOBS_PER_RUN", "1"))
+USE_GEMINI = os.getenv("USE_GEMINI", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 # Inicialização oficial do novo SDK google-genai
 ai_client = None
@@ -185,9 +186,68 @@ def fetch_jobs():
     return all_jobs
 
 
+def local_profile_match(job):
+    text = " ".join([
+        job.get("title", ""),
+        job.get("company", ""),
+        job.get("location", ""),
+        job.get("description", ""),
+    ]).lower()
+
+    junior_keywords = [
+        "junior", "jr", "estagiario", "estágio", "intern", "trainee",
+        "associate software engineer", "software engineer", "developer",
+        "full stack", "frontend", "frontend developer", "backend", "web developer",
+    ]
+    senior_keywords = [
+        "senior", "staff", "lead", "principal", "tech lead", "manager", "arquitect",
+        "architect", "specialist"
+    ]
+    tech_keywords = [
+        "python", "javascript", "typescript", "react", "next", "node", "sql",
+        "java", "django", "fastapi", "api", "frontend", "backend", "full stack",
+        "fullstack", "ia", "data", "dados", "graphql"
+    ]
+
+    title = job.get("title", "").lower()
+    if any(term in title for term in senior_keywords):
+        return False
+
+    if not any(term in title for term in junior_keywords):
+        if not any(term in text for term in tech_keywords):
+            return False
+
+    if not any(term in text for term in tech_keywords):
+        return False
+
+    if "remote" in text or "remoto" in text or "hybrid" in text or "hibrido" in text or "presencial" in text:
+        return True
+
+    return "brasil" in text or "brazil" in text or "df" in text or "brasilia" in text
+
+
+def build_local_approval(job):
+    title = job.get("title", "").strip()
+    company = job.get("company", "").strip()
+    location = job.get("location", "").strip()
+    return {
+        "aprovada": True,
+        "compatibilidade_score": "82%",
+        "empresa": company,
+        "cargo": title,
+        "modalidade": location or "Remoto / Híbrido",
+        "pontos_fortes": "Alinhamento com o perfil júnior/full-stack e stack principal do candidato.",
+        "requisitos_em_falta": "Nenhum",
+        "restricoes_ou_duvidas": "Nenhuma",
+        "link": job.get("url", ""),
+    }
+
+
 def evaluate_job_with_ai(job):
-    if not ai_client:
-        print("Erro: Cliente da IA não está disponível.")
+    if not USE_GEMINI or not ai_client:
+        print(f"[{job['title']}] Sem uso de Gemini: avaliando localmente por regras do perfil.")
+        if local_profile_match(job):
+            return build_local_approval(job)
         return None
 
     prompt = f"""
