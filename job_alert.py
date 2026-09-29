@@ -24,7 +24,7 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 if GEMINI_MODEL == "gemini-2.0-flash":
     GEMINI_MODEL = "gemini-3.8-flash"
 MAX_JOBS_PER_RUN = int(os.getenv("MAX_JOBS_PER_RUN", "1"))
-USE_GEMINI = os.getenv("USE_GEMINI", "0").strip().lower() in {"1", "true", "yes", "on"}
+USE_GEMINI = os.getenv("USE_GEMINI", "1").strip().lower() in {"1", "true", "yes", "on"}
 
 # Inicialização oficial do novo SDK google-genai
 ai_client = None
