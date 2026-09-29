@@ -1,0 +1,38 @@
+name: Monitoramento de Vagas
+
+on:
+  schedule:
+    # Executa a cada 60 minutos
+    - cron: '0 * * * *'
+  workflow_dispatch: # Permite disparar manualmente para testar
+
+jobs:
+  check-jobs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v3
+
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Instalar dependências
+        run: |
+          pip install requests google-generativeai
+
+      - name: Executar script
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python job_alert.py
+
+      - name: Salvar histórico de vagas vistas
+        run: |
+          git config --global user.name 'Job Bot'
+          git config --global user.email 'bot@noreply.github.com'
+          git add seen_jobs.json
+          git commit -m "Atualiza vagas vistas [skip ci]" || echo "Sem alterações"
+          git push
