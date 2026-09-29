@@ -4,6 +4,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import requests
+import google.generativeai as genai
 from bs4 import BeautifulSoup
 import time
 from jobspy import scrape_jobs
@@ -20,21 +21,31 @@ GEMINI_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 AI_CLIENT_TYPE = None
 ai_client = None
 
-if GEMINI_KEY:
-    try:
-        from google import genai
-        ai_client = genai.Client(api_key=GEMINI_KEY)
-        AI_CLIENT_TYPE = "new_sdk"
-    except ImportError:
-        try:
-            import google.generativeai as legacy_genai
-            legacy_genai.configure(api_key=GEMINI_KEY)
-            ai_client = legacy_genai
-            AI_CLIENT_TYPE = "legacy_sdk"
-        except ImportError:
-            print("Aviso: Nenhuma biblioteca do Google Gemini está instalada.")
+if not GEMINI_KEY:
+    print("ERRO: GEMINI_API_KEY ausente.")
+    model = None
 else:
-    print("Aviso: Chave GEMINI_API_KEY não encontrada no ambiente.")
+    genai.configure(api_key=GEMINI_KEY)
+    
+    # Descobre automaticamente os modelos suportados na sua conta
+    available_model_name = None
+    try:
+        for m in genai.list_models():
+            if "generateContent" in m.supported_generation_methods:
+                # Dá preferência para qualquer modelo flash
+                if "flash" in m.name:
+                    available_model_name = m.name
+                    break
+                elif not available_model_name:
+                    available_model_name = m.name
+    except Exception as e:
+        print(f"Erro ao listar modelos: {e}")
+
+    if not available_model_name:
+        available_model_name = "gemini-pro"  # Fallback clássico
+
+    print(f"--> Modelo selecionado com sucesso: {available_model_name}")
+    model = genai.GenerativeModel(available_model_name)
 
 USER_PROFILE = """
 Perfil do Candidato: Gabriel Lopes de Brito
@@ -192,8 +203,8 @@ def fetch_jobs():
 
 
 def evaluate_job_with_ai(job):
-    if not ai_client:
-        print("Erro: ai_client não inicializado (verifique se GEMINI_API_KEY foi definida).")
+    if not model:
+        print("Modelo não inicializado.")
         return None
 
     prompt = f"""
@@ -207,11 +218,11 @@ def evaluate_job_with_ai(job):
     - Descrição: {job['description']}
 
     Critérios de Avaliação:
-    1. A vaga é Júnior ou Estágio? (Rejeita Pleno/Sénior).
+    1. A vaga é Júnior ou Estágio? (Rejeita Pleno/Sênior).
     2. Se for remota internacional, permite contratação no Brasil/América Latina?
     3. Dá preferência a vagas que peçam Python, TypeScript, React/Next.js ou IA/Dados.
 
-    Responde ESTRITAMENTE em formato JSON puro, sem blocos de código markdown:
+    Responde ESTRITAMENTE em formato JSON puro, sem crases de markdown:
     {{
         "aprovada": true,
         "compatibilidade_score": "85%",
@@ -225,40 +236,18 @@ def evaluate_job_with_ai(job):
     }}
     """
 
-    # Pausa breve de 1 segundo para evitar bater no limite de requisições gratuitas (RPM)
-    time.sleep(1)
-
-    raw_text = None
-    last_error = None
-
-    # Tenta obter resposta
-    try:
-        if AI_CLIENT_TYPE == "new_sdk":
-            resp = ai_client.models.generate_content(
-                model="gemini-1.5-flash",
-                contents=prompt
-            )
-            raw_text = resp.text
-        elif AI_CLIENT_TYPE == "legacy_sdk":
-            model_inst = ai_client.GenerativeModel("gemini-1.5-flash")
-            resp = model_inst.generate_content(prompt)
-            raw_text = resp.text
-    except Exception as e:
-        last_error = e
-
-    if not raw_text:
-        print(f"Falha na IA para [{job['title']}]. Detalhe do erro: {last_error}")
-        return None
+    time.sleep(1)  # evita bater no limite de RPM
 
     try:
-        clean_json = raw_text.strip()
-        if clean_json.startswith("```"):
-            clean_json = clean_json.split("\n", 1)[-1]
-        if clean_json.endswith("```"):
-            clean_json = clean_json.rsplit("```", 1)[0]
-        return json.loads(clean_json.strip())
+        response = model.generate_content(prompt)
+        raw_text = response.text.strip()
+        if raw_text.startswith("```"):
+            raw_text = raw_text.split("\n", 1)[-1]
+        if raw_text.endswith("```"):
+            raw_text = raw_text.rsplit("```", 1)[0]
+        return json.loads(raw_text.strip())
     except Exception as e:
-        print(f"Erro ao converter JSON da IA: {e}")
+        print(f"Falha na IA para [{job['title']}]. Detalhe: {e}")
         return None
 
 def send_email(approved_jobs):
