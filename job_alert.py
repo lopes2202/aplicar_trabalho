@@ -20,6 +20,8 @@ GEMINI_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASSWORD") or os.getenv("GMAIL_APP_PASS")
 CACHE_FILE = "seen_jobs.json"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+MAX_JOBS_PER_RUN = int(os.getenv("MAX_JOBS_PER_RUN", "3"))
 
 # Inicialização oficial do novo SDK google-genai
 ai_client = None
@@ -220,20 +222,20 @@ def evaluate_job_with_ai(job):
 
     for tentativa in range(max_tentativas):
         try:
-            # Pausa de 15 segundos obriga o script a respeitar o limite de 4 requisições por minuto da cota gratuita
-            time.sleep(15)
-            
-            chat_session = ai_client.chats.create(model="gemini-3.8-flash")
-            response = chat_session.send_message(prompt)
+            response = ai_client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+            )
             raw_text = response.text.strip()
-            break  # Sucesso! Sai do loop de tentativas.
-            
+            break
+
         except Exception as e:
             erro = str(e)
-            if "429" in erro or "503" in erro:
+            if any(token in erro.lower() for token in ["429", "503", "quota", "rate limit", "too many requests"]):
                 print(f"[{job['title']}] Cota/Sobrecarga da Google. Tentativa {tentativa + 1}/{max_tentativas}. Aguardando 20s...")
-                time.sleep(20)
-                if tentativa == max_tentativas - 1:
+                if tentativa < max_tentativas - 1:
+                    time.sleep(20)
+                else:
                     print(f"Falha definitiva para [{job['title']}] após {max_tentativas} tentativas.")
                     return None
             else:
@@ -297,7 +299,7 @@ def main():
     seen_ids = load_seen_jobs()
     current_jobs = fetch_jobs()
 
-    new_jobs = [j for j in current_jobs if j["id"] not in seen_ids]
+    new_jobs = [j for j in current_jobs if j["id"] not in seen_ids][:MAX_JOBS_PER_RUN]
     if not new_jobs:
         print("Nenhuma nova vaga encontrada nesta execução.")
         save_seen_jobs(seen_ids)
@@ -305,15 +307,16 @@ def main():
 
     approved = []
     for job in new_jobs:
-        seen_ids.add(job["id"])
         eval_result = evaluate_job_with_ai(job)
-        if eval_result and eval_result.get("aprovada"):
-            approved.append(eval_result)
+        if eval_result is not None:
+            seen_ids.add(job["id"])
+            if eval_result.get("aprovada"):
+                approved.append(eval_result)
 
     if approved:
         send_email(approved)
         print(f"{len(approved)} vagas enviadas por e-mail com sucesso.")
-    else:
+    elif new_jobs:
         print("Novas vagas encontradas, mas nenhuma foi aprovada pelos critérios.")
 
     save_seen_jobs(seen_ids)
