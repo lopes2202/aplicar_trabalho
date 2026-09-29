@@ -20,7 +20,9 @@ GEMINI_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASSWORD") or os.getenv("GMAIL_APP_PASS")
 CACHE_FILE = "seen_jobs.json"
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+if GEMINI_MODEL == "gemini-2.0-flash":
+    GEMINI_MODEL = "gemini-3.8-flash"
 MAX_JOBS_PER_RUN = int(os.getenv("MAX_JOBS_PER_RUN", "3"))
 
 # Inicialização oficial do novo SDK google-genai
