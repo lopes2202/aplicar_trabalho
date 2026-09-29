@@ -5,6 +5,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import requests
 from bs4 import BeautifulSoup
+import time
 from jobspy import scrape_jobs
 
 # Tenta carregar .env caso esteja rodando localmente
@@ -189,8 +190,10 @@ def fetch_jobs():
     return all_jobs
 
 
+
 def evaluate_job_with_ai(job):
     if not ai_client:
+        print("Erro: ai_client não inicializado (verifique se GEMINI_API_KEY foi definida).")
         return None
 
     prompt = f"""
@@ -204,44 +207,47 @@ def evaluate_job_with_ai(job):
     - Descrição: {job['description']}
 
     Critérios de Avaliação:
-    1. A vaga é Júnior ou Estágio? (Rejeite Pleno/Sênior).
+    1. A vaga é Júnior ou Estágio? (Rejeita Pleno/Sénior).
     2. Se for remota internacional, permite contratação no Brasil/América Latina?
-    3. Dê preferência a vagas que peçam Python, TypeScript, React/Next.js ou IA/Dados.
+    3. Dá preferência a vagas que peçam Python, TypeScript, React/Next.js ou IA/Dados.
 
-    Responda ESTRITAMENTE em formato JSON puro, sem blocos de código ou markdown:
+    Responde ESTRITAMENTE em formato JSON puro, sem blocos de código markdown:
     {{
         "aprovada": true,
         "compatibilidade_score": "85%",
         "empresa": "{job['company']}",
         "cargo": "{job['title']}",
         "modalidade": "Remoto / Híbrido",
-        "pontos_fortes": "Alinhamento com Next.js e TypeScript",
-        "requisitos_em_falta": "Conhecimento de AWS",
+        "pontos_fortes": "Alinhamento com a stack",
+        "requisitos_em_falta": "Nenhum",
         "restricoes_ou_duvidas": "Nenhuma",
         "link": "{job['url']}"
     }}
     """
 
-    candidate_models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+    # Pausa breve de 1 segundo para evitar bater no limite de requisições gratuitas (RPM)
+    time.sleep(1)
+
     raw_text = None
+    last_error = None
 
-    for m in candidate_models:
-        try:
-            if AI_CLIENT_TYPE == "new_sdk":
-                resp = ai_client.models.generate_content(model=m, contents=prompt)
-                raw_text = resp.text
-            elif AI_CLIENT_TYPE == "legacy_sdk":
-                model_inst = ai_client.GenerativeModel(m)
-                resp = model_inst.generate_content(prompt)
-                raw_text = resp.text
-
-            if raw_text:
-                break
-        except Exception:
-            continue
+    # Tenta obter resposta
+    try:
+        if AI_CLIENT_TYPE == "new_sdk":
+            resp = ai_client.models.generate_content(
+                model="gemini-1.5-flash",
+                contents=prompt
+            )
+            raw_text = resp.text
+        elif AI_CLIENT_TYPE == "legacy_sdk":
+            model_inst = ai_client.GenerativeModel("gemini-1.5-flash")
+            resp = model_inst.generate_content(prompt)
+            raw_text = resp.text
+    except Exception as e:
+        last_error = e
 
     if not raw_text:
-        print(f"Não foi possível obter resposta da IA para o cargo: {job['title']}")
+        print(f"Falha na IA para [{job['title']}]. Detalhe do erro: {last_error}")
         return None
 
     try:
@@ -254,7 +260,6 @@ def evaluate_job_with_ai(job):
     except Exception as e:
         print(f"Erro ao converter JSON da IA: {e}")
         return None
-
 
 def send_email(approved_jobs):
     if not approved_jobs:
