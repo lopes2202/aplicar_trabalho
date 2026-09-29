@@ -69,7 +69,7 @@ def fetch_jobs():
     return jobs
 
 def evaluate_job_with_ai(job):
-        prompt = f"""
+    prompt = f"""
     És um recrutador técnico sénior. Avalia a compatibilidade desta vaga com o candidato:
     {USER_PROFILE}
 
