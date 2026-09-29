@@ -20,7 +20,7 @@ jobs:
 
       - name: Instalar dependências
         run: |
-          pip install requests google-generativeai beautifulsoup4 python-jobspy
+          pip install requests google-genai beautifulsoup4 python-jobspy
          
 
       - name: Executar script

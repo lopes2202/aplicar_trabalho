@@ -5,7 +5,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import requests
 from bs4 import BeautifulSoup
-import google.generativeai as genai
+from google import genai
 from jobspy import scrape_jobs
 
 # Configurações do Perfil
@@ -37,8 +37,7 @@ GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASSWORD")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
-genai.configure(api_key=GEMINI_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+client = genai.Client(api_key=GEMINI_KEY)
 
 def load_seen_jobs():
     if os.path.exists(CACHE_FILE):
@@ -186,7 +185,10 @@ def evaluate_job_with_ai(job):
     }}
     """
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt,
+        )
         text = response.text.strip().replace("```json", "").replace("```", "")
         return json.loads(text)
     except Exception as e:
