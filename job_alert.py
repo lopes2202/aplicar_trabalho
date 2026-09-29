@@ -8,14 +8,26 @@ import google.generativeai as genai
 
 # Configurações do Perfil
 USER_PROFILE = """
-- Perfil: Cursando Inteligência Artificial (2º semestre)
-- Nível de Experiência: Estágio ou Júnior
-- Áreas de interesse: FullStack, Ciência/Engenharia de Dados, IA, Segurança da Informação
+Perfil do Candidato: Gabriel Lopes de Brito
+Formação:
+- Tecnologia em Análise e Desenvolvimento de Sistemas (Concluído - jul/2025)
+- Graduação em Inteligência Artificial (Gran Faculdade - Previsão: jul/2028)
+
+Experiência Atual:
+- Estagiário de Desenvolvimento de Software (Atacadão Dia a Dia, desde abr/2026)
+- Atuação com Next.js, React Native (Expo), TypeScript e Python
+- Criação de APIs, autenticação MFA, painéis de KPI, otimização de queries/lotes e Prisma ORM
+
+Competências Técnicas:
+- Linguagens: Python, JavaScript, TypeScript, SQL, Java
+- Frameworks/Libs: Next.js, React, React Native, Expo, FastAPI, Django, Node.js, Angular, Prisma ORM
+- Bases de Dados: PostgreSQL, SQL Server
+- DevOps & Práticas: Git, GitHub, Docker, APIs REST, Automações, Integração com Google Gemini
+
+Preferências de Vagas:
+- Nível: Estágio avançado ou Desenvolvedor Júnior (Full Stack, Backend, Frontend, IA/Dados)
 - Idioma: Inglês Intermediário
-- Localização: Brasília - DF (Brasil)
-- Modalidades aceitas:
-  * Remoto global (deve permitir contratação de residentes no Brasil)
-  * Híbrido ou presencial em Brasília - DF
+- Localização: Remoto global (elegível para residentes no Brasil) ou Híbrido/Presencial em Brasília-DF
 """
 
 CACHE_FILE = "seen_jobs.json"
@@ -57,29 +69,31 @@ def fetch_jobs():
     return jobs
 
 def evaluate_job_with_ai(job):
-    prompt = f"""
-    Você é um assistente de carreira. Avalie se a vaga abaixo é adequada para o seguinte perfil:
+        prompt = f"""
+    És um recrutador técnico sénior. Avalia a compatibilidade desta vaga com o candidato:
     {USER_PROFILE}
 
-    Detalhes da vaga:
+    Dados da Vaga:
     - Cargo: {job['title']}
     - Empresa: {job['company']}
-    - Local / Restrição: {job['location']}
+    - Local / Restrições: {job['location']}
     - Descrição: {job['description']}
 
-    Critérios rigorosos:
-    1. Vaga de Estágio ou Júnior (descarte Pleno/Sênior).
-    2. Se remota, confirme se brasileiros/candidatos da América Latina são elegíveis.
-    3. Alinhada com as áreas de interesse (FullStack, Dados, IA, Segurança).
+    Critérios de Avaliação:
+    1. A vaga é Júnior ou Estágio? (Rejeita Pleno/Sénior).
+    2. Se for remota internacional, permite contratação no Brasil/América Latina?
+    3. Dá preferência a vagas que peçam Python, TypeScript, React/Next.js ou IA/Dados.
 
-    Responda em JSON:
+    Responde ESTRITAMENTE em formato JSON:
     {{
         "aprovada": true/false,
+        "compatibilidade_score": "0 a 100%",
         "empresa": "{job['company']}",
         "cargo": "{job['title']}",
         "modalidade": "Remoto / Híbrido",
-        "requisitos": "Resumo dos requisitos principais",
-        "restricoes_ou_duvidas": "Sinalize pontos dúbios sobre localidade ou senioridade (se houver)",
+        "pontos_fortes": "Quais requisitos o candidato cumpre com base no currículo",
+        "requisitos_em_falta": "Tecnologias pedidas que ele não tem listadas",
+        "restricoes_ou_duvidas": "Avisos sobre senioridade, fuso horário ou contratação",
         "link": "{job['url']}"
     }}
     """
