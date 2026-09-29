@@ -5,10 +5,36 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import requests
 from bs4 import BeautifulSoup
-from google import genai
 from jobspy import scrape_jobs
 
-# Configurações do Perfil
+# Tenta carregar .env caso esteja rodando localmente
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+# Configuração da IA (suporta tanto google-genai quanto google-generativeai)
+GEMINI_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+AI_CLIENT_TYPE = None
+ai_client = None
+
+if GEMINI_KEY:
+    try:
+        from google import genai
+        ai_client = genai.Client(api_key=GEMINI_KEY)
+        AI_CLIENT_TYPE = "new_sdk"
+    except ImportError:
+        try:
+            import google.generativeai as legacy_genai
+            legacy_genai.configure(api_key=GEMINI_KEY)
+            ai_client = legacy_genai
+            AI_CLIENT_TYPE = "legacy_sdk"
+        except ImportError:
+            print("Aviso: Nenhuma biblioteca do Google Gemini está instalada.")
+else:
+    print("Aviso: Chave GEMINI_API_KEY não encontrada no ambiente.")
+
 USER_PROFILE = """
 Perfil do Candidato: Gabriel Lopes de Brito
 Formação:
@@ -34,23 +60,23 @@ Preferências de Vagas:
 
 CACHE_FILE = "seen_jobs.json"
 GMAIL_USER = os.getenv("GMAIL_USER")
-GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASSWORD")
-GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASSWORD") or os.getenv("GMAIL_APP_PASS")
 
-client = genai.Client(api_key=GEMINI_KEY)
 
 def load_seen_jobs():
     if os.path.exists(CACHE_FILE):
         try:
-            with open(CACHE_FILE, "r") as f:
+            with open(CACHE_FILE, "r", encoding="utf-8") as f:
                 return set(json.load(f))
         except Exception:
             return set()
     return set()
 
+
 def save_seen_jobs(seen_ids):
-    with open(CACHE_FILE, "w") as f:
-        json.dump(list(seen_ids), f, indent=2)
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(list(seen_ids), f, indent=2, ensure_ascii=False)
+
 
 def fetch_jobspy():
     jobs = []
@@ -61,7 +87,7 @@ def fetch_jobspy():
             location="Brasilia, Brazil",
             results_wanted=10,
             hours_old=48,
-            country_indeed='brazil'
+            country_indeed="brazil",
         )
         for _, row in jobs_df.iterrows():
             job_url = str(row.get("job_url", "")).strip()
@@ -69,20 +95,24 @@ def fetch_jobspy():
             if job_url:
                 jobs.append({
                     "id": f"indeed_{job_id}",
-                    "title": str(row.get("title", "")),
-                    "company": str(row.get("company", "Confidencial")),
-                    "location": str(row.get("location", "Brasília / Remoto")),
+                    "title": str(row.get("title", "")).strip(),
+                    "company": str(row.get("company", "Confidencial")).strip(),
+                    "location": str(row.get("location", "Brasília / Remoto")).strip(),
                     "url": job_url,
-                    "description": str(row.get("description", ""))[:1500]
+                    "description": str(row.get("description", ""))[:1500].strip(),
                 })
     except Exception as e:
         print(f"Erro ao buscar no JobSpy (Indeed): {e}")
     return jobs
 
+
 def fetch_remotive():
     jobs = []
     try:
-        res = requests.get("https://remotive.com/api/remote-jobs?category=software-dev&limit=20", timeout=10)
+        res = requests.get(
+            "https://remotive.com/api/remote-jobs?category=software-dev&limit=20",
+            timeout=10,
+        )
         for item in res.json().get("jobs", []):
             jobs.append({
                 "id": f"remotive_{item['id']}",
@@ -90,11 +120,12 @@ def fetch_remotive():
                 "company": item["company_name"],
                 "location": item.get("candidate_required_location", "Anywhere"),
                 "url": item["url"],
-                "description": item["description"][:1500]
+                "description": item["description"][:1500],
             })
     except Exception as e:
         print(f"Erro ao buscar no Remotive: {e}")
     return jobs
+
 
 def fetch_linkedin():
     jobs = []
@@ -109,7 +140,7 @@ def fetch_linkedin():
             company_tag = post.find("h4", class_="base-search-card__subtitle")
             link_tag = post.find("a", class_="base-card__full-link")
             loc_tag = post.find("span", class_="job-search-card__location")
-            
+
             if title_tag and link_tag:
                 link = link_tag["href"].split("?")[0]
                 job_id = link.rstrip("/").split("-")[-1]
@@ -119,11 +150,12 @@ def fetch_linkedin():
                     "company": company_tag.text.strip() if company_tag else "Confidencial",
                     "location": loc_tag.text.strip() if loc_tag else "Brasil",
                     "url": link,
-                    "description": f"Vaga no LinkedIn: {title_tag.text.strip()} em {company_tag.text.strip() if company_tag else 'Empresa Confidencial'}"
+                    "description": f"Vaga no LinkedIn: {title_tag.text.strip()}",
                 })
     except Exception as e:
         print(f"Erro ao buscar no LinkedIn: {e}")
     return jobs
+
 
 def fetch_nerdin():
     jobs = []
@@ -141,11 +173,12 @@ def fetch_nerdin():
                     "company": "Nerdin",
                     "location": "Remoto / Brasil",
                     "url": f"https://nerdin.com.br{a_tag['href']}",
-                    "description": card.text.strip()[:1000]
+                    "description": card.text.strip()[:1000],
                 })
     except Exception as e:
         print(f"Erro ao buscar no Nerdin: {e}")
     return jobs
+
 
 def fetch_jobs():
     all_jobs = []
@@ -155,7 +188,11 @@ def fetch_jobs():
     all_jobs.extend(fetch_nerdin())
     return all_jobs
 
+
 def evaluate_job_with_ai(job):
+    if not ai_client:
+        return None
+
     prompt = f"""
     És um recrutador técnico sénior. Avalia a compatibilidade desta vaga com o candidato:
     {USER_PROFILE}
@@ -167,11 +204,11 @@ def evaluate_job_with_ai(job):
     - Descrição: {job['description']}
 
     Critérios de Avaliação:
-    1. A vaga é Júnior ou Estágio? (Rejeita Pleno/Sénior).
+    1. A vaga é Júnior ou Estágio? (Rejeite Pleno/Sênior).
     2. Se for remota internacional, permite contratação no Brasil/América Latina?
-    3. Dá preferência a vagas que peçam Python, TypeScript, React/Next.js ou IA/Dados.
+    3. Dê preferência a vagas que peçam Python, TypeScript, React/Next.js ou IA/Dados.
 
-    Responde ESTRITAMENTE em formato JSON puro, sem crases de bloco de código:
+    Responda ESTRITAMENTE em formato JSON puro, sem blocos de código ou markdown:
     {{
         "aprovada": true,
         "compatibilidade_score": "85%",
@@ -184,19 +221,47 @@ def evaluate_job_with_ai(job):
         "link": "{job['url']}"
     }}
     """
-    try:
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=prompt,
-        )
-        text = response.text.strip().replace("```json", "").replace("```", "")
-        return json.loads(text)
-    except Exception as e:
-        print(f"Erro ao analisar vaga com IA: {e}")
+
+    candidate_models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+    raw_text = None
+
+    for m in candidate_models:
+        try:
+            if AI_CLIENT_TYPE == "new_sdk":
+                resp = ai_client.models.generate_content(model=m, contents=prompt)
+                raw_text = resp.text
+            elif AI_CLIENT_TYPE == "legacy_sdk":
+                model_inst = ai_client.GenerativeModel(m)
+                resp = model_inst.generate_content(prompt)
+                raw_text = resp.text
+
+            if raw_text:
+                break
+        except Exception:
+            continue
+
+    if not raw_text:
+        print(f"Não foi possível obter resposta da IA para o cargo: {job['title']}")
         return None
+
+    try:
+        clean_json = raw_text.strip()
+        if clean_json.startswith("```"):
+            clean_json = clean_json.split("\n", 1)[-1]
+        if clean_json.endswith("```"):
+            clean_json = clean_json.rsplit("```", 1)[0]
+        return json.loads(clean_json.strip())
+    except Exception as e:
+        print(f"Erro ao converter JSON da IA: {e}")
+        return None
+
 
 def send_email(approved_jobs):
     if not approved_jobs:
+        return
+
+    if not GMAIL_USER or not GMAIL_APP_PASS:
+        print("Credenciais de Gmail ausentes. E-mail não enviado.")
         return
 
     msg = MIMEMultipart("alternative")
@@ -228,10 +293,11 @@ def send_email(approved_jobs):
         server.login(GMAIL_USER, GMAIL_APP_PASS)
         server.sendmail(GMAIL_USER, GMAIL_USER, msg.as_string())
 
+
 def main():
     seen_ids = load_seen_jobs()
     current_jobs = fetch_jobs()
-    
+
     new_jobs = [j for j in current_jobs if j["id"] not in seen_ids]
     if not new_jobs:
         print("Nenhuma nova vaga encontrada nesta execução.")
@@ -252,6 +318,7 @@ def main():
         print("Novas vagas encontradas, mas nenhuma foi aprovada pelos critérios.")
 
     save_seen_jobs(seen_ids)
+
 
 if __name__ == "__main__":
     main()
