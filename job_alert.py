@@ -5,6 +5,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import requests
 import google.generativeai as genai
+import xml.etree.ElementTree as ET
 
 # Configurações do Perfil
 USER_PROFILE = """
@@ -48,25 +49,87 @@ def save_seen_jobs(seen_ids):
     with open(CACHE_FILE, "w") as f:
         json.dump(list(seen_ids), f)
 
-def fetch_jobs():
-    """Exemplo consumindo endpoints públicos agregados de ATS (como Remotive / APIs de empresas)."""
+
+def fetch_remotive():
     jobs = []
     try:
-        # API de vagas remotas públicas
         res = requests.get("https://remotive.com/api/remote-jobs?category=software-dev&limit=25", timeout=10)
-        data = res.json()
-        for item in data.get("jobs", []):
+        for item in res.json().get("jobs", []):
             jobs.append({
-                "id": str(item["id"]),
+                "id": f"remotive_{item['id']}",
                 "title": item["title"],
                 "company": item["company_name"],
                 "location": item.get("candidate_required_location", "Anywhere"),
                 "url": item["url"],
-                "description": item["description"][:1500]  # snippet para validação
+                "description": item["description"][:1500]
             })
     except Exception as e:
-        print(f"Erro ao buscar vagas: {e}")
+        print(f"Erro ao buscar no Remotive: {e}")
     return jobs
+
+def fetch_linkedin():
+    jobs = []
+    # Endpoint público de pesquisa de empregos do LinkedIn (sem login)
+    url = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=desenvolvedor%20junior&location=Brasil&f_TPR=r86400"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        # Parse simples do HTML retornado
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(res.text, "html.parser")
+        postings = soup.find_all("li")
+        for post in postings:
+            title_tag = post.find("h3", class_="base-search-card__title")
+            company_tag = post.find("h4", class_="base-search-card__subtitle")
+            link_tag = post.find("a", class_="base-card__full-link")
+            loc_tag = post.find("span", class_="job-search-card__location")
+            
+            if title_tag and link_tag:
+                link = link_tag["href"].split("?")[0]
+                job_id = link.rstrip("/").split("-")[-1]
+                jobs.append({
+                    "id": f"linkedin_{job_id}",
+                    "title": title_tag.text.strip(),
+                    "company": company_tag.text.strip() if company_tag else "Confidencial",
+                    "location": loc_tag.text.strip() if loc_tag else "Brasil",
+                    "url": link,
+                    "description": f"Vaga listada no LinkedIn: {title_tag.text.strip()}"
+                })
+    except Exception as e:
+        print(f"Erro ao buscar no LinkedIn: {e}")
+    return jobs
+
+def fetch_nerdin():
+    jobs = []
+    # Exemplo consultando a busca pública do Nerdin
+    url = "https://nerdin.com.br/vagas?termo=junior"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(res.text, "html.parser")
+        for card in soup.find_all("div", class_="vaga-item"):
+            a_tag = card.find("a")
+            if a_tag and a_tag.get("href"):
+                jobs.append({
+                    "id": f"nerdin_{a_tag['href'].split('/')[-1]}",
+                    "title": a_tag.text.strip(),
+                    "company": "Nerdin",
+                    "location": "Remoto / Brasil",
+                    "url": f"https://nerdin.com.br{a_tag['href']}",
+                    "description": card.text.strip()[:1000]
+                })
+    except Exception as e:
+        print(f"Erro ao buscar no Nerdin: {e}")
+    return jobs
+
+def fetch_jobs():
+    """Junta as vagas de todas as plataformas numa única lista."""
+    all_jobs = []
+    all_jobs.extend(fetch_remotive())
+    all_jobs.extend(fetch_linkedin())
+    all_jobs.extend(fetch_nerdin())
+    return all_jobs
 
 def evaluate_job_with_ai(job):
     prompt = f"""
